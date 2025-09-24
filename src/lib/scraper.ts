@@ -38,25 +38,21 @@ export class FinnishCompanyScraper {
         // Randomize user agent
         const userAgent = this.userAgents[Math.floor(Math.random() * this.userAgents.length)];
 
-        // Fetch the webpage with enhanced headers
-        const response = await axios.get(url, {
-          headers: {
-            'User-Agent': userAgent,
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
-            'Accept-Language': 'fi-FI,fi;q=0.9,en-US;q=0.8,en;q=0.7',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1',
-            'Sec-Fetch-Dest': 'document',
-            'Sec-Fetch-Mode': 'navigate',
-            'Sec-Fetch-Site': 'none',
-            'Cache-Control': 'no-cache',
-            'Pragma': 'no-cache',
-          },
-          timeout: 15000, // Increased to 15 seconds
-          maxRedirects: 10,
-          validateStatus: (status) => status < 500, // Accept redirects and client errors
-        });
+        // Add random delay to mimic human behavior
+        await this.delay(Math.random() * 1000 + 500); // 0.5-1.5 seconds
+
+        // Try different approaches based on attempt
+        let response;
+        if (attempt === 1) {
+          // First attempt: Full browser simulation
+          response = await this.fetchWithFullHeaders(url, userAgent);
+        } else if (attempt === 2) {
+          // Second attempt: Minimal headers
+          response = await this.fetchWithMinimalHeaders(url, userAgent);
+        } else {
+          // Third attempt: Simple request
+          response = await this.fetchSimple(url);
+        }
 
         // Check if we got a valid response
         if (response.status >= 400) {
@@ -73,6 +69,15 @@ export class FinnishCompanyScraper {
         const emailAddresses = this.extractEmailAddresses($);
         const people = this.extractPeople($);
 
+        // Log what we found for debugging
+        console.log(`Successfully scraped ${url}:`, {
+          contacts: contacts.length,
+          phoneNumbers: phoneNumbers.length,
+          emailAddresses: emailAddresses.length,
+          people: people.length,
+          pageTitle: $('title').text().substring(0, 50)
+        });
+
         return {
           contacts,
           phoneNumbers,
@@ -81,10 +86,17 @@ export class FinnishCompanyScraper {
         };
       } catch (error) {
         lastError = error instanceof Error ? error : new Error('Unknown error');
-        console.warn(`Attempt ${attempt}/${maxRetries} failed for ${url}:`, lastError.message);
+        console.warn(`Attempt ${attempt}/${maxRetries} failed for ${url}:`, {
+          error: lastError.message,
+          type: error.constructor.name,
+          status: error.response?.status,
+          statusText: error.response?.statusText,
+          headers: error.response?.headers
+        });
         
         // Don't retry for certain types of errors
         if (this.isNonRetryableError(lastError)) {
+          console.log(`Not retrying ${url} due to non-retryable error: ${lastError.message}`);
           break;
         }
       }
@@ -99,6 +111,61 @@ export class FinnishCompanyScraper {
    */
   private delay(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Fetch with full browser headers (most realistic)
+   */
+  private async fetchWithFullHeaders(url: string, userAgent: string) {
+    return await axios.get(url, {
+      headers: {
+        'User-Agent': userAgent,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'fi-FI,fi;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+        'DNT': '1',
+        'Referer': 'https://www.google.com/',
+      },
+      timeout: 20000,
+      maxRedirects: 10,
+      validateStatus: (status) => status < 500,
+    });
+  }
+
+  /**
+   * Fetch with minimal headers (less detectable)
+   */
+  private async fetchWithMinimalHeaders(url: string, userAgent: string) {
+    return await axios.get(url, {
+      headers: {
+        'User-Agent': userAgent,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'fi-FI,fi;q=0.9,en;q=0.8',
+        'Connection': 'keep-alive',
+      },
+      timeout: 25000,
+      maxRedirects: 15,
+      validateStatus: (status) => status < 500,
+    });
+  }
+
+  /**
+   * Simple fetch (fallback)
+   */
+  private async fetchSimple(url: string) {
+    return await axios.get(url, {
+      timeout: 30000,
+      maxRedirects: 20,
+      validateStatus: (status) => status < 500,
+    });
   }
 
   /**
@@ -192,10 +259,28 @@ export class FinnishCompanyScraper {
     });
 
     // Also look for individual contact cards/items
-    $('.contact-item, .team-item, .person, .staff').each((_, element) => {
+    $('.contact-item, .team-item, .person, .staff, .member, .employee, .worker').each((_, element) => {
       const contactData = this.extractContactFromElement($, $(element));
       if (contactData) {
         contacts.push(contactData);
+      }
+    });
+
+    // Look for any div/section that contains both a name and contact info
+    $('div, section, article').each((_, element) => {
+      const $el = $(element);
+      const text = $el.text();
+      
+      // Check if this element contains both a name pattern and contact info
+      const hasName = /\b[A-ZÄÖÅ][a-zäöå]+ [A-ZÄÖÅ][a-zäöå]+/.test(text);
+      const hasPhone = /(\+358|0)[0-9\s\-\.]{8,}/.test(text);
+      const hasEmail = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/.test(text);
+      
+      if (hasName && (hasPhone || hasEmail)) {
+        const contactData = this.extractContactFromElement($, $el);
+        if (contactData) {
+          contacts.push(contactData);
+        }
       }
     });
 
