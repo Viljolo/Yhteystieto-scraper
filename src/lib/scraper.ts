@@ -6,7 +6,13 @@ import { ContactInfo, Contact, Person } from '@/types';
  * Main scraper class for extracting Finnish company contact information
  */
 export class FinnishCompanyScraper {
-  private readonly userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36';
+  private readonly userAgents = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15',
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+  ];
   
   /**
    * Scrapes contact information from a Finnish company website
@@ -14,46 +20,104 @@ export class FinnishCompanyScraper {
    * @returns Promise<ContactInfo> - Extracted contact information
    */
   async scrapeContactInfo(url: string): Promise<ContactInfo> {
-    try {
-      // Validate URL
-      if (!this.isValidUrl(url)) {
-        throw new Error('Invalid URL provided');
+    const maxRetries = 3;
+    let lastError: Error | null = null;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        // Validate URL
+        if (!this.isValidUrl(url)) {
+          throw new Error('Invalid URL provided');
+        }
+
+        // Add delay between retries
+        if (attempt > 1) {
+          await this.delay(1000 * attempt); // Progressive delay: 2s, 3s
+        }
+
+        // Randomize user agent
+        const userAgent = this.userAgents[Math.floor(Math.random() * this.userAgents.length)];
+
+        // Fetch the webpage with enhanced headers
+        const response = await axios.get(url, {
+          headers: {
+            'User-Agent': userAgent,
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Language': 'fi-FI,fi;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache',
+          },
+          timeout: 15000, // Increased to 15 seconds
+          maxRedirects: 10,
+          validateStatus: (status) => status < 500, // Accept redirects and client errors
+        });
+
+        // Check if we got a valid response
+        if (response.status >= 400) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const $ = cheerio.load(response.data);
+        
+        // Extract grouped contact information
+        const contacts = this.extractGroupedContacts($);
+        
+        // Extract legacy separate data for backward compatibility
+        const phoneNumbers = this.extractPhoneNumbers($);
+        const emailAddresses = this.extractEmailAddresses($);
+        const people = this.extractPeople($);
+
+        return {
+          contacts,
+          phoneNumbers,
+          emailAddresses,
+          people,
+        };
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error('Unknown error');
+        console.warn(`Attempt ${attempt}/${maxRetries} failed for ${url}:`, lastError.message);
+        
+        // Don't retry for certain types of errors
+        if (this.isNonRetryableError(lastError)) {
+          break;
+        }
       }
-
-      // Fetch the webpage
-      const response = await axios.get(url, {
-        headers: {
-          'User-Agent': this.userAgent,
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-          'Accept-Language': 'fi-FI,fi;q=0.9,en;q=0.8',
-          'Accept-Encoding': 'gzip, deflate, br',
-          'Connection': 'keep-alive',
-          'Upgrade-Insecure-Requests': '1',
-        },
-        timeout: 10000, // 10 second timeout
-        maxRedirects: 5,
-      });
-
-      const $ = cheerio.load(response.data);
-      
-      // Extract grouped contact information
-      const contacts = this.extractGroupedContacts($);
-      
-      // Extract legacy separate data for backward compatibility
-      const phoneNumbers = this.extractPhoneNumbers($);
-      const emailAddresses = this.extractEmailAddresses($);
-      const people = this.extractPeople($);
-
-      return {
-        contacts,
-        phoneNumbers,
-        emailAddresses,
-        people,
-      };
-    } catch (error) {
-      console.error(`Error scraping ${url}:`, error);
-      throw new Error(`Failed to scrape ${url}: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
+
+    // If all retries failed, throw the last error
+    throw new Error(`Failed to scrape ${url} after ${maxRetries} attempts: ${lastError?.message || 'Unknown error'}`);
+  }
+
+  /**
+   * Adds a delay between requests
+   */
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Determines if an error should not be retried
+   */
+  private isNonRetryableError(error: Error): boolean {
+    const nonRetryablePatterns = [
+      'Invalid URL',
+      '404',
+      '403',
+      '401',
+      '400',
+      'ENOTFOUND',
+      'ECONNREFUSED'
+    ];
+    
+    return nonRetryablePatterns.some(pattern => 
+      error.message.includes(pattern)
+    );
   }
 
   /**
@@ -75,26 +139,47 @@ export class FinnishCompanyScraper {
   private extractGroupedContacts($: cheerio.CheerioAPI): Contact[] {
     const contacts: Contact[] = [];
     
-    // Common selectors for contact sections
+    // Common selectors for contact sections - expanded list
     const contactSelectors = [
       'section[class*="contact"]',
       'section[class*="team"]',
       'section[class*="henkilöstö"]',
+      'section[class*="staff"]',
+      'section[class*="employee"]',
+      'section[class*="person"]',
       'div[class*="contact"]',
       'div[class*="team"]',
       'div[class*="henkilöstö"]',
       'div[class*="staff"]',
       'div[class*="employee"]',
+      'div[class*="person"]',
+      'div[class*="yhteystiedot"]',
+      'div[class*="henkilökunta"]',
       '.contact-info',
+      '.contact-details',
       '.team-member',
       '.staff-member',
       '.employee-card',
       '.person-card',
+      '.contact-card',
+      '.contact-item',
+      '.team-item',
+      '.staff-item',
+      '.person-item',
       '#contact',
       '#team',
       '#henkilöstö',
+      '#henkilökunta',
+      '#yhteystiedot',
       '[data-contact]',
-      '[data-team-member]'
+      '[data-team-member]',
+      '[data-staff-member]',
+      'footer', // Often contains contact info
+      'address', // HTML address element
+      '.footer-contact',
+      '.contact-section',
+      '.team-section',
+      '.staff-section'
     ];
 
     contactSelectors.forEach(selector => {
@@ -125,11 +210,23 @@ export class FinnishCompanyScraper {
     const text = $element.text();
     const html = $element.html() || '';
     
-    // Extract name (Finnish name pattern)
-    const nameMatch = text.match(/\b[A-ZÄÖÅ][a-zäöå]+ [A-ZÄÖÅ][a-zäöå]+(?:\s[A-ZÄÖÅ][a-zäöå]+)?\b/);
-    if (!nameMatch) return null;
+    // Extract name (Finnish name pattern) - more flexible
+    const namePatterns = [
+      /\b[A-ZÄÖÅ][a-zäöå]+ [A-ZÄÖÅ][a-zäöå]+(?:\s[A-ZÄÖÅ][a-zäöå]+)?\b/, // Finnish names
+      /\b[A-Z][a-z]+ [A-Z][a-z]+(?:\s[A-Z][a-z]+)?\b/, // International names
+      /\b[A-ZÄÖÅ][a-zäöå]+\s+[A-ZÄÖÅ][a-zäöå]+\b/ // Simpler pattern
+    ];
     
-    const name = nameMatch[0].trim();
+    let name: string | null = null;
+    for (const pattern of namePatterns) {
+      const match = text.match(pattern);
+      if (match) {
+        name = match[0].trim();
+        break;
+      }
+    }
+    
+    if (!name) return null;
     
     // Extract title from common Finnish job titles
     const titleKeywords = [
@@ -179,8 +276,8 @@ export class FinnishCompanyScraper {
       ? emailMatch[0].toLowerCase() 
       : undefined;
     
-    // Only return contact if we have at least name and one contact method
-    if (name && (phone || email)) {
+    // Return contact if we have a name (even without contact methods for better coverage)
+    if (name) {
       return {
         name,
         title,
