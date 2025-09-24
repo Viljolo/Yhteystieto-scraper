@@ -1,5 +1,6 @@
 'use client';
 
+// Yhteystieto-raaputtaja - Finnish Company Contact Scraper
 import React, { useState } from 'react';
 import { ScrapingForm } from '@/components/ScrapingForm';
 import { ResultsDisplay } from '@/components/ResultsDisplay';
