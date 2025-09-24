@@ -1,6 +1,6 @@
 import * as cheerio from 'cheerio';
 import axios from 'axios';
-import { ContactInfo, Person } from '@/types';
+import { ContactInfo, Contact, Person } from '@/types';
 
 /**
  * Main scraper class for extracting Finnish company contact information
@@ -36,12 +36,16 @@ export class FinnishCompanyScraper {
 
       const $ = cheerio.load(response.data);
       
-      // Extract different types of contact information
+      // Extract grouped contact information
+      const contacts = this.extractGroupedContacts($);
+      
+      // Extract legacy separate data for backward compatibility
       const phoneNumbers = this.extractPhoneNumbers($);
       const emailAddresses = this.extractEmailAddresses($);
       const people = this.extractPeople($);
 
       return {
+        contacts,
         phoneNumbers,
         emailAddresses,
         people,
@@ -62,6 +66,149 @@ export class FinnishCompanyScraper {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Extracts grouped contact information by analyzing contact sections
+   * This method tries to associate names, titles, phones, and emails together
+   */
+  private extractGroupedContacts($: cheerio.CheerioAPI): Contact[] {
+    const contacts: Contact[] = [];
+    
+    // Common selectors for contact sections
+    const contactSelectors = [
+      'section[class*="contact"]',
+      'section[class*="team"]',
+      'section[class*="henkilöstö"]',
+      'div[class*="contact"]',
+      'div[class*="team"]',
+      'div[class*="henkilöstö"]',
+      'div[class*="staff"]',
+      'div[class*="employee"]',
+      '.contact-info',
+      '.team-member',
+      '.staff-member',
+      '.employee-card',
+      '.person-card',
+      '#contact',
+      '#team',
+      '#henkilöstö',
+      '[data-contact]',
+      '[data-team-member]'
+    ];
+
+    contactSelectors.forEach(selector => {
+      $(selector).each((_, element) => {
+        const contactData = this.extractContactFromElement($, $(element));
+        if (contactData) {
+          contacts.push(contactData);
+        }
+      });
+    });
+
+    // Also look for individual contact cards/items
+    $('.contact-item, .team-item, .person, .staff').each((_, element) => {
+      const contactData = this.extractContactFromElement($, $(element));
+      if (contactData) {
+        contacts.push(contactData);
+      }
+    });
+
+    // Remove duplicates and return unique contacts
+    return this.removeDuplicateContacts(contacts);
+  }
+
+  /**
+   * Extracts contact information from a specific element
+   */
+  private extractContactFromElement($: cheerio.CheerioAPI, $element: cheerio.Cheerio<cheerio.Element>): Contact | null {
+    const text = $element.text();
+    const html = $element.html() || '';
+    
+    // Extract name (Finnish name pattern)
+    const nameMatch = text.match(/\b[A-ZÄÖÅ][a-zäöå]+ [A-ZÄÖÅ][a-zäöå]+(?:\s[A-ZÄÖÅ][a-zäöå]+)?\b/);
+    if (!nameMatch) return null;
+    
+    const name = nameMatch[0].trim();
+    
+    // Extract title from common Finnish job titles
+    const titleKeywords = [
+      'toimitusjohtaja', 'tj', 'ceo', 'managing director',
+      'myyntipäällikkö', 'sales manager', 'myynti',
+      'markkinointipäällikkö', 'marketing manager', 'markkinointi',
+      'asiakaspalvelupäällikkö', 'customer service manager',
+      'henkilöstöpäällikkö', 'hr manager', 'henkilöstö',
+      'talouspäällikkö', 'financial manager', 'talous',
+      'projektipäällikkö', 'project manager', 'projekti',
+      'tiimipäällikkö', 'team leader', 'tiimi',
+      'päällikkö', 'manager', 'johtaja', 'director',
+      'asiantuntija', 'specialist', 'konsultti', 'consultant',
+      'kehittäjä', 'developer', 'suunnittelija', 'designer',
+      'avustaja', 'assistant', 'koordinaattori', 'coordinator'
+    ];
+    
+    let title = 'Tuntematon';
+    for (const keyword of titleKeywords) {
+      if (text.toLowerCase().includes(keyword)) {
+        title = keyword;
+        break;
+      }
+    }
+    
+    // Extract phone number from this element
+    const phonePatterns = [
+      /(\+358\s?[0-9]{2}\s?[0-9]{3}\s?[0-9]{4})/g,
+      /(0[0-9]{1,2}\s?[0-9]{3}\s?[0-9]{4})/g,
+      /(0[0-9]{1,2}-[0-9]{3}-[0-9]{4})/g,
+      /(0[0-9]{1,2}\.[0-9]{3}\.[0-9]{4})/g,
+    ];
+    
+    let phone: string | undefined;
+    for (const pattern of phonePatterns) {
+      const match = text.match(pattern);
+      if (match && this.isValidPhoneNumber(match[0])) {
+        phone = this.normalizePhoneNumber(match[0]);
+        break;
+      }
+    }
+    
+    // Extract email from this element
+    const emailPattern = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+    const emailMatch = text.match(emailPattern);
+    const email = emailMatch && this.isValidEmail(emailMatch[0]) 
+      ? emailMatch[0].toLowerCase() 
+      : undefined;
+    
+    // Only return contact if we have at least name and one contact method
+    if (name && (phone || email)) {
+      return {
+        name,
+        title,
+        phone,
+        email,
+      };
+    }
+    
+    return null;
+  }
+
+  /**
+   * Removes duplicate contacts based on name similarity
+   */
+  private removeDuplicateContacts(contacts: Contact[]): Contact[] {
+    const uniqueContacts: Contact[] = [];
+    
+    contacts.forEach(contact => {
+      const isDuplicate = uniqueContacts.some(existing => 
+        existing.name.toLowerCase() === contact.name.toLowerCase()
+      );
+      
+      if (!isDuplicate) {
+        uniqueContacts.push(contact);
+      }
+    });
+    
+    return uniqueContacts.slice(0, 10); // Limit to 10 contacts
   }
 
   /**

@@ -1,8 +1,17 @@
 // Types for the scraping application
 export interface ContactInfo {
+  contacts: Contact[];
+  // Legacy fields for backward compatibility
   phoneNumbers: string[];
   emailAddresses: string[];
   people: Person[];
+}
+
+export interface Contact {
+  name: string;
+  title: string;
+  phone?: string;
+  email?: string;
 }
 
 export interface Person {

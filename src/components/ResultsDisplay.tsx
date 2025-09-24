@@ -62,60 +62,98 @@ export function ResultsDisplay({ results, onDownloadCSV }: ResultsDisplayProps) 
           <CardContent>
             {singleResult.success && singleResult.data ? (
               <div className="space-y-6">
-                {/* Phone Numbers */}
-                {singleResult.data.phoneNumbers.length > 0 && (
-                  <div>
-                    <h4 className="flex items-center gap-2 font-semibold mb-3">
-                      <Phone className="h-4 w-4" />
-                      Puhelinnumerot ({singleResult.data.phoneNumbers.length})
-                    </h4>
-                    <div className="space-y-2">
-                      {singleResult.data.phoneNumbers.map((phone, index) => (
-                        <div key={index} className="flex items-center gap-2">
-                          <Badge variant="outline">{phone}</Badge>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Email Addresses */}
-                {singleResult.data.emailAddresses.length > 0 && (
-                  <div>
-                    <h4 className="flex items-center gap-2 font-semibold mb-3">
-                      <Mail className="h-4 w-4" />
-                      Sähköpostiosoitteet ({singleResult.data.emailAddresses.length})
-                    </h4>
-                    <div className="space-y-2">
-                      {singleResult.data.emailAddresses.map((email, index) => (
-                        <div key={index} className="flex items-center gap-2">
-                          <Badge variant="outline">{email}</Badge>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* People */}
-                {singleResult.data.people.length > 0 && (
+                {/* Grouped Contacts */}
+                {singleResult.data.contacts.length > 0 && (
                   <div>
                     <h4 className="flex items-center gap-2 font-semibold mb-3">
                       <User className="h-4 w-4" />
-                      Henkilöt ({singleResult.data.people.length})
+                      Yhteystiedot ({singleResult.data.contacts.length})
                     </h4>
-                    <div className="space-y-3">
-                      {singleResult.data.people.map((person, index) => (
-                        <div key={index} className="border rounded-lg p-3">
-                          <div className="font-medium">{person.name}</div>
-                          <div className="text-sm text-muted-foreground">{person.title}</div>
+                    <div className="space-y-4">
+                      {singleResult.data.contacts.map((contact, index) => (
+                        <div key={index} className="border rounded-lg p-4 bg-gray-50">
+                          <div className="font-semibold text-lg">{contact.name}</div>
+                          <div className="text-sm text-muted-foreground mb-3">{contact.title}</div>
+                          <div className="flex flex-wrap gap-2">
+                            {contact.phone && (
+                              <div className="flex items-center gap-1">
+                                <Phone className="h-3 w-3" />
+                                <Badge variant="outline">{contact.phone}</Badge>
+                              </div>
+                            )}
+                            {contact.email && (
+                              <div className="flex items-center gap-1">
+                                <Mail className="h-3 w-3" />
+                                <Badge variant="outline">{contact.email}</Badge>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       ))}
                     </div>
                   </div>
                 )}
 
+                {/* Legacy separate data (if no grouped contacts found) */}
+                {singleResult.data.contacts.length === 0 && (
+                  <>
+                    {/* Phone Numbers */}
+                    {singleResult.data.phoneNumbers.length > 0 && (
+                      <div>
+                        <h4 className="flex items-center gap-2 font-semibold mb-3">
+                          <Phone className="h-4 w-4" />
+                          Puhelinnumerot ({singleResult.data.phoneNumbers.length})
+                        </h4>
+                        <div className="space-y-2">
+                          {singleResult.data.phoneNumbers.map((phone, index) => (
+                            <div key={index} className="flex items-center gap-2">
+                              <Badge variant="outline">{phone}</Badge>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Email Addresses */}
+                    {singleResult.data.emailAddresses.length > 0 && (
+                      <div>
+                        <h4 className="flex items-center gap-2 font-semibold mb-3">
+                          <Mail className="h-4 w-4" />
+                          Sähköpostiosoitteet ({singleResult.data.emailAddresses.length})
+                        </h4>
+                        <div className="space-y-2">
+                          {singleResult.data.emailAddresses.map((email, index) => (
+                            <div key={index} className="flex items-center gap-2">
+                              <Badge variant="outline">{email}</Badge>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* People */}
+                    {singleResult.data.people.length > 0 && (
+                      <div>
+                        <h4 className="flex items-center gap-2 font-semibold mb-3">
+                          <User className="h-4 w-4" />
+                          Henkilöt ({singleResult.data.people.length})
+                        </h4>
+                        <div className="space-y-3">
+                          {singleResult.data.people.map((person, index) => (
+                            <div key={index} className="border rounded-lg p-3">
+                              <div className="font-medium">{person.name}</div>
+                              <div className="text-sm text-muted-foreground">{person.title}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+
                 {/* No Data Found */}
-                {singleResult.data.phoneNumbers.length === 0 && 
+                {singleResult.data.contacts.length === 0 && 
+                 singleResult.data.phoneNumbers.length === 0 && 
                  singleResult.data.emailAddresses.length === 0 && 
                  singleResult.data.people.length === 0 && (
                   <div className="text-center py-8 text-muted-foreground">

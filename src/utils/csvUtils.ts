@@ -40,25 +40,45 @@ export class CSVUtils {
    * @returns string - CSV content
    */
   static createCSVFromResults(results: ScrapingResult[]): string {
-    const headers = ['URL', 'Phone Numbers', 'Email Addresses', 'People', 'Error'];
+    const headers = ['URL', 'Name', 'Title', 'Phone', 'Email', 'Error'];
     const rows: string[][] = [];
 
     results.forEach(result => {
-      const row: string[] = [result.url];
-      
       if (result.success && result.data) {
-        row.push(result.data.phoneNumbers.join('; '));
-        row.push(result.data.emailAddresses.join('; '));
-        row.push(result.data.people.map(p => `${p.name} (${p.title})`).join('; '));
-        row.push(''); // No error
+        // If we have grouped contacts, use them
+        if (result.data.contacts.length > 0) {
+          result.data.contacts.forEach(contact => {
+            const row: string[] = [
+              result.url,
+              contact.name,
+              contact.title,
+              contact.phone || '',
+              contact.email || '',
+              '' // No error
+            ];
+            rows.push(row);
+          });
+        } else {
+          // Fallback to legacy separate data
+          const row: string[] = [
+            result.url,
+            result.data.people.map(p => p.name).join('; ') || '',
+            result.data.people.map(p => p.title).join('; ') || '',
+            result.data.phoneNumbers.join('; '),
+            result.data.emailAddresses.join('; '),
+            '' // No error
+          ];
+          rows.push(row);
+        }
       } else {
-        row.push(''); // No phone numbers
-        row.push(''); // No email addresses
-        row.push(''); // No people
-        row.push(result.error || 'Unknown error');
+        // Error case
+        const row: string[] = [
+          result.url,
+          '', '', '', '',
+          result.error || 'Unknown error'
+        ];
+        rows.push(row);
       }
-      
-      rows.push(row);
     });
 
     // Escape CSV values
