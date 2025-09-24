@@ -88,10 +88,10 @@ export class FinnishCompanyScraper {
         lastError = error instanceof Error ? error : new Error('Unknown error');
         console.warn(`Attempt ${attempt}/${maxRetries} failed for ${url}:`, {
           error: lastError.message,
-          type: error.constructor.name,
-          status: error.response?.status,
-          statusText: error.response?.statusText,
-          headers: error.response?.headers
+          type: error instanceof Error ? error.constructor.name : 'Unknown',
+          status: (error as any)?.response?.status,
+          statusText: (error as any)?.response?.statusText,
+          headers: (error as any)?.response?.headers
         });
         
         // Don't retry for certain types of errors
