@@ -121,7 +121,7 @@ export class FinnishCompanyScraper {
   /**
    * Extracts contact information from a specific element
    */
-  private extractContactFromElement($: cheerio.CheerioAPI, $element: cheerio.Cheerio<cheerio.Element>): Contact | null {
+  private extractContactFromElement($: cheerio.CheerioAPI, $element: cheerio.Cheerio<any>): Contact | null {
     const text = $element.text();
     const html = $element.html() || '';
     
