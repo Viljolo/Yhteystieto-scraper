@@ -1,5 +1,4 @@
-import csv from 'csv-parser';
-import createCsvWriter from 'csv-writer';
+import * as csv from 'csv-parser';
 import { Readable } from 'stream';
 import { ScrapingResult, CSVRow } from '@/types';
 
